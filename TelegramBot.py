@@ -70,7 +70,7 @@ class EnhancedTelegramBot:
         # 转义处理
         title = await self._escape_markdown(article.get('title', ''))
         description = await self._escape_markdown((article.get('description') or '')[:300] + '')
-        stock_info = await self._escape_markdown(article.get('stock_stickers', ''))
+        stock_tickers = await self._escape_markdown(article.get('stock_tickers', ''))
         source = await self._escape_markdown(article.get('source', '').upper())
         category = await self._escape_markdown(article.get('category', ''))
 
@@ -80,7 +80,7 @@ class EnhancedTelegramBot:
         # 构建消息结构
         message_lines = [
             f"**{title}**",
-            f"*Stock*: `{stock_info}`" if stock_info else "",
+            f"*Stock*: `{stock_tickers}`" if stock_tickers else "",
             f"\n{description}" if description else "",
             f"\n[Read ALL]({article['link']})"
         ]
@@ -219,31 +219,33 @@ class RobustWSClient:
         print(f"收到{len(articles)}条新文章")
         translator = NewsTranslator(DIFY_API_KEY, DIFY_ENDPOINT)
 
-        for article in articles:
-            try:
-                # 只翻译标题和描述部分
-                translation = await translator.translate_news(
-                    title=article['title'],
-                    description=article.get('description', '')
-                )
-                #异步等待close
-                await translator.close()
-
-                if translation and isinstance(translation.get('answer'), str):
-                    # 在原文后添加翻译
-                    article['description'] = (
-                        f"{article.get('description', '')}\n\n"
-                        f"Translation:\n{translation['answer']}"
+        try:
+            for article in articles:
+                try:
+                    # 只翻译标题和描述部分
+                    translation = await translator.translate_news(
+                        title=article['title'],
+                        description=article.get('description', '')
                     )
 
-                # 发送到 Telegram
-                await self.bot.send_article(article)
+                    if translation and translation.get('title') and translation.get('description'):
+                        article['title'] = (
+                            f"{article['title']}\n\n"
+                            f"*{translation['title']}*"
+                        )
+                        article['description'] = (
+                            f"{article.get('description', '')}\n\n"
+                            f"*{translation['description']}*"
+                        )
 
-            except Exception as e:
-                print(f"处理文章失败: {str(e)}")
-                await self.bot.send_article(article)  # 发送原始内容
+                    await self.bot.send_article(article)
 
-        await translator.close()
+                except Exception as e:
+                    print(f"处理文章失败: {str(e)}")
+                    await self.bot.send_article(article)
+
+        finally:
+            await translator.close()
 
 
 async def main():
