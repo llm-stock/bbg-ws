@@ -280,7 +280,7 @@ async def client_handler(websocket: WebSocketServerProtocol):
 
         # 消息监听循环
         async for message in websocket:
-            handle_client_message(message, remote)
+            await handle_client_message(message, remote, websocket)
 
     except ConnectionClosedOK:
         pass
@@ -291,7 +291,7 @@ async def client_handler(websocket: WebSocketServerProtocol):
         print(f"连接关闭: {remote}")
 
 
-async def handle_client_message(message, remote):
+async def handle_client_message(message, remote, websocket):
     """处理客户端消息"""
     try:
         cmd = json.loads(message)
@@ -301,10 +301,12 @@ async def handle_client_message(message, remote):
                 "type": "history",
                 **news_cache.get_history(page=page)
             })
-            await safe_send(message, history)
+            await safe_send(websocket, history)
             print(f"{remote} 请求第 {page} 页数据")
         elif cmd.get("action") == "reload":
             print(f"{remote} 请求重载历史数据")
+            await news_cache.fetch()
+
     except json.JSONDecodeError:
         print(f"无效消息来自 {remote}: {message[:50]}...")
 
