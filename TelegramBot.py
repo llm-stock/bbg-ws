@@ -121,48 +121,55 @@ class EnhancedTelegramBot:
                 finally:
                     self.last_sent = time.monotonic()
 
+
 class NewsTranslator:
-    def __init__(self, api_key):
+    def __init__(self, api_key: str, endpoint: str):
         self.api_key = api_key
-        self.session = aiohttp.ClientSession()
-        self.endpoint = DIFY_ENDPOINT
+        self.endpoint = endpoint
+        self.session = None
+
+    async def _ensure_session(self):
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+
+    async def close(self):
+        if self.session:
+            await self.session.close()
+            self.session = None
 
     async def translate_news(self, title: str, description: str) -> dict:
         """Translate news using Dify API."""
+        await self._ensure_session()
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
 
         payload = {
-            "inputs": {},
-            "response_mode": "blocking",  # Changed to blocking for simpler handling
-            "user": "bloomberg-news",
-            "title": title,
-            "description": description
+            "inputs": {
+                "title": title,
+                "description": description
+            },
+            "response_mode": "blocking",
+            "user": "bloomberg-news"
         }
 
         try:
             async with self.session.post(
-                self.endpoint,
-                headers=headers,
-                json=payload
+                    self.endpoint,
+                    headers=headers,
+                    json=payload
             ) as response:
                 if response.status == 200:
-                    return await response.json()
-                else:
-                    print(f"Dify API error: {response.status}")
-                    return None
+                    result = await response.json()
+                    if result.get('data', {}).get('outputs') is not None:
+                        return result['data']['outputs']
+                print(f"Dify API error: {response.status}")
+                return {}
         except Exception as e:
             print(f"Translation request failed: {str(e)}")
-            return None
-
-    async def close(self):
-        """Close the aiohttp session."""
-        await self.session.close()
-
-
-
+            return {}
 class RobustWSClient:
     def __init__(self):
         self.bot = EnhancedTelegramBot()
@@ -188,7 +195,7 @@ class RobustWSClient:
         """持久化监听循环"""
         while True:
             try:
-                async with await self._safe_connect() as ws:
+                async with (await self._safe_connect()) as ws:
                     print("成功连接WebSocket服务器")
                     self.reconnect_count = 0
                     await self._message_loop(ws)
@@ -210,7 +217,7 @@ class RobustWSClient:
     async def _process_update(self, articles):
         """处理新闻更新"""
         print(f"收到{len(articles)}条新文章")
-        translator = NewsTranslator(DIFY_API_KEY)
+        translator = NewsTranslator(DIFY_API_KEY, DIFY_ENDPOINT)
 
         for article in articles:
             try:
@@ -219,6 +226,8 @@ class RobustWSClient:
                     title=article['title'],
                     description=article.get('description', '')
                 )
+                #异步等待close
+                await translator.close()
 
                 if translation and isinstance(translation.get('answer'), str):
                     # 在原文后添加翻译
