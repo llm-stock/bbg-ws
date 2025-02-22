@@ -33,7 +33,7 @@ class EnhancedTelegramBot:
         """处理MarkdownV2转义，增强空值处理"""
         if not text:
             return ''
-        escape_chars = '_*[]()~`>#+-=|{}.!'
+        escape_chars = '_*`>#+-=|{}.!'
         return text.translate(str.maketrans({c: f'\\{c}' for c in escape_chars}))
 
     async def _send_photo_message(self, url: str, caption: str) -> bool:
@@ -51,7 +51,7 @@ class EnhancedTelegramBot:
             form.add_field('photo', url)
             form.add_field('caption', await self._escape_markdown(caption[:1024]))
             form.add_field('parse_mode', "MarkdownV2")
-
+            form.add_field('disable_web_page_preview', "true")
             async with self.session.post(photo_url, data=form) as resp:
                 if resp.status == 200:
                     return True
@@ -111,11 +111,17 @@ class EnhancedTelegramBot:
                 message_parts.append(f"*{await self._escape_markdown(translated_description)}*")
 
             message_parts.append(f"*Stock*: `{stock_info}`")
-            message_parts.append(f"[Read ALL]({article_link})")
+            read_all_link = f"[Read ALL]({article_link})"
 
             # 过滤空段落并拼接
             filtered_parts = list(filter(None, message_parts))
-            return "\n\n".join(filtered_parts) + "\n\n" + "▬" * 20
+            raw_message = "\n\n".join(filtered_parts)
+            escaped_message = await self._escape_markdown(raw_message)
+            # 重新插入未转义的链接
+            return escaped_message.replace(
+                await self._escape_markdown(read_all_link),
+                read_all_link
+            ) + "\n\n" + "▬" * 20
         except Exception as e:
             print(f"[ERROR] 消息构建异常: {str(e)}")
             return f"{raw_title}\n\n[阅读全文]({article.get('link', '#')})"
