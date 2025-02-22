@@ -56,7 +56,11 @@ Server sends news updates in format:
   "count": 10,
   "articles": [
     "..."
-  ]
+  ],
+  "total": 200,
+  "page": 1,
+  "page_size": 100,
+  "total_pages": 2
 }
 ```
 
@@ -66,7 +70,7 @@ Send request with page number:
 
 ```json
 {
-  "type": "history",
+  "action": "get_page",
   "page": 1
 }
 ```
