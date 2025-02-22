@@ -18,7 +18,7 @@ from dateutil.tz import UTC
 
 dotenv.load_dotenv()
 # 全局配置
-RSS_URL = os.getenv('BLOOMBERG_RSS_URL')
+# RSS_URL = os.getenv('BLOOMBERG_RSS_URL')
 NEWS_SITEMAP = os.getenv('BLOOMBERG_NEWS_SITEMAP')
 CHECK_INTERVAL = 60  # 数据检查间隔（秒）
 SITEMAP_INTERVAL = 60  # 站点地图抓取间隔（秒）
@@ -82,27 +82,28 @@ class NewsCache:
     async def fetch(self):
         """统一数据抓取入口"""
         try:
-            # 并行获取数据源
-            rss, sitemap = await asyncio.gather(
-                self._fetch_rss(),
-                self._fetch_sitemap()
-            )
+            # # 并行获取数据源
+            # rss, sitemap = await asyncio.gather(
+            #     self._fetch_rss(),
+            #     self._fetch_sitemap()
+            # )
+            rss, sitemap = await  self._fetch_sitemap()
             return self._process_entries(rss + sitemap)
         except Exception as e:
             print(f"数据抓取失败: {str(e)}")
             return []
 
-    async def _fetch_rss(self):
-        """处理RSS源"""
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(RSS_URL) as resp:
-                    data = await resp.text()
-                    feed = feedparser.parse(data)
-                    return [self._parse_rss_entry(e) for e in feed.entries]
-            except Exception as e:
-                print(f"RSS抓取失败: {str(e)}")
-                return []
+    # async def _fetch_rss(self):
+    #     """处理RSS源"""
+    #     async with aiohttp.ClientSession() as session:
+    #         try:
+    #             async with session.get(RSS_URL) as resp:
+    #                 data = await resp.text()
+    #                 feed = feedparser.parse(data)
+    #                 return [self._parse_rss_entry(e) for e in feed.entries]
+    #         except Exception as e:
+    #             print(f"RSS抓取失败: {str(e)}")
+    #             return []
 
     def _parse_rss_entry(self, entry):
         """解析RSS条目"""
