@@ -4,17 +4,16 @@ import os
 import time
 from collections import deque
 from threading import Lock
-from urllib.parse import urlparse
+from xml.etree import ElementTree as ET
+
 import aiohttp
 import dotenv
-import feedparser
-import pytz
 from dateutil import parser
+from dateutil.tz import UTC
 from websockets.exceptions import ConnectionClosedOK
 from websockets.legacy.server import WebSocketServerProtocol, serve
-from xml.etree import ElementTree as ET
+
 from DatabaseManager import DatabaseManager
-from dateutil.tz import UTC
 
 dotenv.load_dotenv()
 # 全局配置
@@ -55,7 +54,7 @@ class NewsCache:
         """处理并存储条目，返回分页结果"""
         valid_entries = [e for e in entries if e is not None]
         sorted_entries = sorted(valid_entries,
-                              key=lambda x: parser.parse(x["published"]))
+                                key=lambda x: parser.parse(x["published"]))
 
         new_articles = []
         with self.lock:
@@ -87,8 +86,9 @@ class NewsCache:
             #     self._fetch_rss(),
             #     self._fetch_sitemap()
             # )
-            rss, sitemap = await  self._fetch_sitemap()
-            return self._process_entries(rss + sitemap)
+            # return self._process_entries(rss + sitemap)
+            sitemap = await self._fetch_sitemap()
+            return self._process_entries(sitemap)
         except Exception as e:
             print(f"数据抓取失败: {str(e)}")
             return []
