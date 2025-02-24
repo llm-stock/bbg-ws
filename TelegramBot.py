@@ -1,3 +1,4 @@
+import html
 import os
 import json
 import asyncio
@@ -30,10 +31,11 @@ class EnhancedTelegramBot:
             self.rate_limiter.put_nowait(None)
 
     async def _escape_markdown(self, text: str) -> str:
-        """处理MarkdownV2转义，增强空值处理"""
+        """优化后的MarkdownV2转义方法"""
         if not text:
             return ''
-        escape_chars = '_*`>#+-=|{}.!'
+        # 需要转义的字符（排除代码块中的反引号）
+        escape_chars = '_>#+-=|{}.!'
         return text.translate(str.maketrans({c: f'\\{c}' for c in escape_chars}))
 
     async def _send_photo_message(self, url: str, caption: str) -> bool:
@@ -83,45 +85,47 @@ class EnhancedTelegramBot:
             print(f"文本发送网络错误: {str(e)}")
             return False
 
+    async def _escape_markdown(self, text: str) -> str:
+        """优化Markdown转义逻辑"""
+        if not text:
+            return ''
+        # 需要转义的字符（排除用于格式化的符号）
+        escape_chars = '_>#+-=|{}.!'
+        return text.translate(str.maketrans({c: f'\\{c}' for c in escape_chars}))
+
     async def _construct_message(self, article: dict) -> str:
-        """健壮的消息构建方法"""
+        """修复所有格式问题"""
         try:
-            # 安全获取字段值
-            raw_title = article.get('title', '') or 'Untitled'
-            raw_description = article.get('description', '')[:300]
-            translated_title = article.get('translated_title', '')
-            translated_description = article.get('translated_description', '')
-            stock_tickers = str(article.get('stock_tickers', '暂无代码'))
-            article_link = article.get('link', '#')
+            # 安全获取字段值（新增HTML解码）
+            raw_title = html.unescape(article.get('title', '') or 'Untitled')
+            raw_description = html.unescape(article.get('description', '')[:300])
+            translated_title = html.unescape(article.get('translated_title', ''))
+            translated_description = html.unescape(article.get('translated_description', ''))
 
-            # 转义处理
-            title = await self._escape_markdown(raw_title)
-            description = await self._escape_markdown(raw_description)
-            stock_info = await self._escape_markdown(stock_tickers)
+            # 处理股票代码
+            stock_tickers = str(article.get('stock_tickers', ''))
+            stock_info = f"`{await self._escape_markdown(stock_tickers)}`"  # 代码块处理
 
-            # 构建消息段落
+            # 构建消息段落（修复格式）
             message_parts = []
-            if title:
-                message_parts.append(title)
+            if raw_title:
+                message_parts.append(await self._escape_markdown(raw_title))
             if translated_title:
+                # 手动添加星号，不转义
                 message_parts.append(f"*{await self._escape_markdown(translated_title)}*")
-            if description:
-                message_parts.append(description)
+            if raw_description:
+                message_parts.append(await self._escape_markdown(raw_description))
             if translated_description:
                 message_parts.append(f"*{await self._escape_markdown(translated_description)}*")
 
-            message_parts.append(f"*Stock*: `{stock_info}`")
-            read_all_link = f"[Read ALL]({article_link})"
+            # 股票信息和链接（确保存在）
+            message_parts.append(f"*Stock*: {stock_info}")
+            message_parts.append(f"[Read ALL]({article.get('link', '#')})")  # 确保链接存在
 
             # 过滤空段落并拼接
             filtered_parts = list(filter(None, message_parts))
-            raw_message = "\n\n".join(filtered_parts)
-            escaped_message = await self._escape_markdown(raw_message)
-            # 重新插入未转义的链接
-            return escaped_message.replace(
-                await self._escape_markdown(read_all_link),
-                read_all_link
-            ) + "\n\n" + "▬" * 20
+            return "\n\n".join(filtered_parts) + "\n\n" + "▬" * 20
+
         except Exception as e:
             print(f"[ERROR] 消息构建异常: {str(e)}")
             return f"{raw_title}\n\n[阅读全文]({article.get('link', '#')})"
