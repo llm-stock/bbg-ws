@@ -206,7 +206,7 @@ class NewsTranslator:
                     self.endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=15
+                    timeout=30
             ) as resp:
                 if resp.status != 200:
                     error = await resp.text()
