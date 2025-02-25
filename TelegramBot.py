@@ -1,8 +1,11 @@
+# import hashlib
 import html
 import os
 import json
 import asyncio
 import time
+# from pyexpat.errors import messages
+
 import aiohttp
 import websockets
 from typing import Optional
@@ -27,6 +30,7 @@ class EnhancedTelegramBot:
         self.semaphore = asyncio.Semaphore(5)  # 并发控制
         self.retry_limit = 3
         self.rate_limiter = asyncio.Queue()
+        self.send_lock = asyncio.Lock()
         for _ in range(5):  # 初始化速率限制令牌
             self.rate_limiter.put_nowait(None)
 
@@ -35,7 +39,7 @@ class EnhancedTelegramBot:
         if not text:
             return ''
         # 需要转义的字符（排除代码块中的反引号）
-        escape_chars = '_>#+-=|{}.!'
+        escape_chars = '_*[]()~`>#+-=|{}.!'
         return text.translate(str.maketrans({c: f'\\{c}' for c in escape_chars}))
 
     async def _send_photo_message(self, url: str, caption: str) -> bool:
@@ -58,6 +62,7 @@ class EnhancedTelegramBot:
                 if resp.status == 200:
                     return True
                 error = await resp.text()
+                print(f"图片地址: {url}")
                 print(f"Telegram图片发送失败[{resp.status}]: {error}")
                 return False
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -104,7 +109,7 @@ class EnhancedTelegramBot:
 
             # 处理股票代码
             stock_tickers = str(article.get('stock_tickers', ''))
-            stock_info = f"`{await self._escape_markdown(stock_tickers)}`"  # 代码块处理
+            stock_info = f"`{stock_tickers}`"  # 代码块处理
 
             # 构建消息段落（修复格式）
             message_parts = []
@@ -132,39 +137,45 @@ class EnhancedTelegramBot:
 
     async def send_article(self, article: dict):
         """增强的消息发送方法，包含速率控制和重试机制"""
-        async with self.semaphore:
-            await self.rate_limiter.get()  # 等待可用令牌
-            try:
-                for attempt in range(self.retry_limit):
-                    try:
-                        # 速率控制
-                        now = time.monotonic()
-                        if now - self.last_sent < RATE_LIMIT:
-                            await asyncio.sleep(RATE_LIMIT - (now - self.last_sent))
+        async with self.send_lock:
 
-                        message = await self._construct_message(article)
-                        media_url = article.get('media_url', '')
-
-                        # 优先发送带图片的消息
-                        success = False
-                        if media_url:
-                            success = await self._send_photo_message(media_url, message)
-                            if success:
-                                break
-                            print("图片发送失败，尝试纯文本方式...")
-
-                        # 纯文本回退
-                        success = await self._send_text_message(message)
-                        if success:
+            async with self.semaphore:
+                await self.rate_limiter.get()  # 等待可用令牌
+                try:
+                    message_sent = False
+                    for attempt in range(self.retry_limit):
+                        if message_sent:
                             break
-                    except Exception as e:
-                        print(f"发送尝试 {attempt + 1} 失败: {str(e)}")
-                        await asyncio.sleep(2 ** attempt)
-                else:
-                    print(f"消息发送失败，已达最大重试次数: {self.retry_limit}")
-            finally:
-                self.last_sent = time.monotonic()
-                self.rate_limiter.put_nowait(None)  # 释放令牌
+                        try:
+                            # 速率控制
+                            now = time.monotonic()
+                            if now - self.last_sent < RATE_LIMIT:
+                                await asyncio.sleep(RATE_LIMIT - (now - self.last_sent))
+
+                            message = await self._construct_message(article)
+                            media_url = article.get('media_url', '')
+
+                            # 优先发送带图片的消息
+                            success = False
+                            if media_url:
+                                message_sent = await self._send_photo_message(media_url, message)
+                                if message_sent:
+                                    break
+                                print("图片发送失败，尝试纯文本方式...")
+
+                            # 纯文本回退
+                            message_sent = await self._send_text_message(message)
+                            if message_sent:
+                                break
+                        except Exception as e:
+                            print(f"发送尝试 {attempt + 1} 失败: {str(e)}")
+                            await asyncio.sleep(2 ** attempt)
+
+                    else:
+                        print(f"消息发送失败，已达最大重试次数: {self.retry_limit}")
+                finally:
+                    self.last_sent = time.monotonic()
+                    self.rate_limiter.put_nowait(None)  # 释放令牌
 
 
 class NewsTranslator:
@@ -212,12 +223,12 @@ class NewsTranslator:
                     error = await resp.text()
                     print(f"[ERROR] Dify API响应异常: {resp.status} - {error}")
                     return {}
-
+                print("[Translator] 正在解析JSON响应...")
                 result = await resp.json()
                 if not result.get('data', {}).get('outputs'):
                     print(f"[WARN] 无效的翻译结果: {json.dumps(result, indent=2)}")
                     return {}
-
+                print(f"[Translator] 成功翻译: {title[:30]}...")
                 return result['data']['outputs']
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"[ERROR] 翻译请求失败: {str(e)}")
@@ -270,43 +281,48 @@ class RobustWSClient:
             raise
 
     async def _process_update(self, articles):
-        """增强的文章处理方法"""
+        """增加超时控制的处理逻辑"""
         print(f"\n[Processing] 收到 {len(articles)} 篇新文章")
+        # 新增处理队列
+        processing_queue = asyncio.Queue()
+        for article in articles:
+            await processing_queue.put(article)
+        while not processing_queue.empty():
+            article = await processing_queue.get()
+            try:
+                await self._process_single_article(article)
+            finally:
+                processing_queue.task_done()
 
+    async def _process_single_article(self, article: dict):
+        """原子化处理单篇文章"""
+
+
+
+
+        # 阶段1: 获取翻译结果
         try:
-            for index, article in enumerate(articles, 1):
-                try:
-                    if not isinstance(article, dict):
-                        print(f"[WARN] 无效的文章格式，索引 {index}")
-                        continue
+            translated = await self.translator.translate_news(
+                article.get('title', ''),
+                article.get('description', '')
+            )
+        except Exception as e:
+            translated = None
+            print(f"[ERROR] 翻译失败: {str(e)}")
 
-                    print(f"\n[Article {index}] 处理: {article.get('title', '无标题')[:50]}...")
+        # 阶段2: 构建最终消息
+        processed = article.copy()
+        if translated:
+            processed.update({
+                'translated_title': translated.get('title', ''),
+                'translated_description': translated.get('description', '')
+            })
 
-                    # 安全获取字段
-                    title = article.get('title', '')
-                    description = article.get('description', '')
+        # 阶段3: 发送完整消息
+        await self.bot.send_article(processed)
 
-                    # 翻译处理
-                    translation = await self.translator.translate_news(title, description)
-                    processed = article.copy()
-
-                    if translation:
-                        processed.update({
-                            'translated_title': translation.get('title', ''),
-                            'translated_description': translation.get('description', '')
-                        })
-
-                    # 发送处理后的文章
-                    await self.bot.send_article(processed)
-                except KeyError as e:
-                    print(f"[ERROR] 文章缺少必要字段: {str(e)}")
-                    print(f"[DUMP] 问题文章: {json.dumps(article, indent=2)}")
-                except Exception as e:
-                    print(f"[ERROR] 处理文章异常: {str(e)}")
-                    await self.bot.send_article(article)  # 降级处理
-        finally:
-            await self.translator.close()
-
+        # 记录已处理
+        # self.processed_ids.add(article_id)
     async def listen_forever(self):
         """持久化监听循环"""
         while True:
