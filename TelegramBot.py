@@ -119,9 +119,11 @@ class EnhancedTelegramBot:
                 # 手动添加星号，不转义
                 message_parts.append(f"*{await self._escape_markdown(translated_title)}*")
             if raw_description:
-                message_parts.append(await self._escape_markdown(raw_description))
+                escaped_raw_desc = await self._escape_markdown(raw_description.replace('-', '\\-'))
+                message_parts.append(escaped_raw_desc)
             if translated_description:
-                message_parts.append(f"*{await self._escape_markdown(translated_description)}*")
+                escaped_trans_desc = await self._escape_markdown(translated_description.replace('-', '\\-'))
+                message_parts.append(f"*{escaped_trans_desc}*")
 
             # 股票信息和链接（确保存在）
             message_parts.append(f"*Stock*: {stock_info}")
