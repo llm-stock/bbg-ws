@@ -13,7 +13,7 @@ import dotenv
 import DatabaseManager as db
 
 dotenv.load_dotenv()
-dbConn = db.DatabaseManager
+dbConn = db.DatabaseManager()
 # 环境配置
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
