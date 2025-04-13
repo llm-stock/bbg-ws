@@ -10,9 +10,10 @@ import aiohttp
 import websockets
 from typing import Optional
 import dotenv
+import DatabaseManager as db
 
 dotenv.load_dotenv()
-
+dbConn = db.DatabaseManager
 # 环境配置
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -288,7 +289,9 @@ class RobustWSClient:
         # 新增处理队列
         processing_queue = asyncio.Queue()
         for article in articles:
-            await processing_queue.put(article)
+            if article.get('guid', '').strip() and not dbConn.is_news_exists(article.get('guid')):
+                processing_queue.put_nowait(article)
+                await processing_queue.put(article)
         while not processing_queue.empty():
             article = await processing_queue.get()
             try:
