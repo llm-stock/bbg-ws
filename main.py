@@ -190,14 +190,15 @@ class NewsCache:
     def _process_entries(self, entries):
         """处理并存储条目"""
         valid_entries = [e for e in entries if e is not None]
-        sorted_entries = sorted(valid_entries,
-                                key=lambda x: parser.parse(x["published"]))
+        sorted_entries = sorted(valid_entries, key=lambda x: parser.parse(x["published"]))
 
         new_articles = []
         with self.lock:
             for entry in sorted_entries:
                 pub_date = parser.parse(entry["published"])
-                if not self.latest_pub_date or pub_date > self.latest_pub_date:
+                guid = entry.get("guid")
+                # 使用 is_news_exists 排除重复条目
+                if guid and not self.db.is_news_exists(guid):
                     new_articles.append(entry)
                     self.cache.append(entry)
                     if not self.latest_pub_date or pub_date > self.latest_pub_date:
